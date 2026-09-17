@@ -1,22 +1,30 @@
-# Project X
+# CS425 P1 — Simple Mail Client
 
-- Name: John Doe
-- Email: johndoe@u.boisestate.edu
-- Class: CS123-001
+- Name: Landon Quaintance
+- Class: CS425
 
-## Known Bugs or Issues
+## Build and run
 
-TODO: Are there any known issues?
+Run `make all`, then send a message with:
 
-## Experience
+```sh
+echo 'message body' | ./build/release/myapp -f me@example.test -t you@example.test -s hello -p 2525 server.example.test
+```
 
-TODO: Describe your experience with the project (struggles, breakthroughs, etc.).
+The body may instead be supplied with `-b`. Run `make check`, `make report`,
+`make leak`, and `make leak-test` to verify the project.
 
-## Analysis
+## Design
 
-TODO: Provide your analysis of the results. If the assignment does not require
-analysis, you can remove this section.
+The project has three layers. Pure helpers parse SMTP reply syntax and construct
+CRLF-terminated commands and DATA payloads (including dot stuffing); they have no
+I/O. The session layer owns line buffering, multi-line reply handling, sequencing,
+and status validation, but receives reads and writes through a transport callback
+pair. The socket layer is a small adapter around `getaddrinfo`, `connect`, `recv`,
+and `send`. This lets unit tests run complete SMTP conversations using a scripted
+in-memory server, without a live mail server.
 
-Here is an example of how to include a plot in your README:
+## Notes
 
-![Example Image](scripts/example_plot.png)
+The client uses HELO, does not negotiate TLS or authentication, and rejects bare
+CR/LF in envelope and header inputs to prevent command/header injection.
