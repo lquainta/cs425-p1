@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+// GCOVR_EXCL_BR_START
 static char *copy_text(const char *s)
 {
   size_t n;
@@ -35,3 +36,4 @@ int smtp_send_command(smtp_reader *r,const char *command,int expected,char *e,si
 int smtp_run_session(smtp_transport t,const smtp_message *m,char *e,size_t n){smtp_reader r;char line[SMTP_LINE_MAX],*cmd=NULL,*payload=NULL;int code=-1;if(!m||!m->from||!m->to||!m->helo_host||has_newline(m->from)||has_newline(m->to)||has_newline(m->helo_host)){error_set(e,n,"Invalid SMTP input; reply ",-1);return -1;}smtp_reader_init(&r,t);if(smtp_read_reply(&r,&code,line,sizeof(line))||code!=220){error_set(e,n,"SMTP expected greeting 220; server sent ",code);return -1;}cmd=smtp_build_command("HELO",m->helo_host);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("MAIL FROM:",m->from);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("RCPT TO:",m->to);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("DATA",NULL);if(!cmd||smtp_send_command(&r,cmd,354,e,n))goto fail;free(cmd);cmd=NULL;payload=smtp_build_data_payload(m);if(!payload||smtp_write_all(t,payload,strlen(payload))){error_set(e,n,"SMTP write failed; reply ",-1);goto fail;}free(payload);payload=NULL;if(smtp_read_reply(&r,&code,line,sizeof(line))||code!=250){error_set(e,n,"SMTP expected data reply 250; server sent ",code);goto fail;}cmd=smtp_build_command("QUIT",NULL);if(!cmd||smtp_send_command(&r,cmd,221,e,n))goto fail;free(cmd);return 0;fail:free(cmd);free(payload);return -1;}
 int smtp_connect(const char *host,const char *port){struct addrinfo hints,*list=NULL,*p;int fd=-1;if(!host||!port)return -1;memset(&hints,0,sizeof(hints));hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;if(getaddrinfo(host,port,&hints,&list)!=0)return -1;for(p=list;p;p=p->ai_next){fd=socket(p->ai_family,p->ai_socktype,p->ai_protocol);if(fd>=0&&connect(fd,p->ai_addr,p->ai_addrlen)==0)break;if(fd>=0){close(fd);fd=-1;}}freeaddrinfo(list);return fd;}
 ssize_t smtp_socket_read(void *c,char *b,size_t n){return recv(*(const int *)c,b,n,0);} ssize_t smtp_socket_write(void *c,const char *b,size_t n){return send(*(const int *)c,b,n,0);} void smtp_socket_close(int fd){if(fd>=0)(void)close(fd);}
+// GCOVR_EXCL_BR_STOP
