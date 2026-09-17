@@ -8,7 +8,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-// GCOVR_EXCL_BR_START
 static char *copy_text(const char *s)
 {
   size_t n;
@@ -24,7 +23,18 @@ static int has_newline(const char *s) { return s != NULL && strpbrk(s, "\r\n") !
 int smtp_parse_reply_code(const char *s) { if(!s || strlen(s)<3U || !isdigit((unsigned char)s[0]) || !isdigit((unsigned char)s[1]) || !isdigit((unsigned char)s[2])) return -1; return (s[0]-'0')*100+(s[1]-'0')*10+s[2]-'0'; }
 int smtp_reply_is_final(const char *s) { return smtp_parse_reply_code(s)>=0 && s[3]==' '; }
 int smtp_has_bare_newline(const char *s) { size_t i; if(!s) return 1; for(i=0;s[i];++i) if((s[i]=='\r' && s[i+1]!='\n') || (s[i]=='\n' && (!i || s[i-1]!='\r'))) return 1; return 0; }
-char *smtp_build_command(const char *verb, const char *arg) { size_t a=arg?strlen(arg):0U, v, size; char *r; if(!verb || !*verb) return NULL; v=strlen(verb); size=arg ? v+a+(verb[v-1U]==':' ? 5U : 4U) : v+3U; r=malloc(size); if(!r) return NULL; if(arg && verb[v-1U]==':') snprintf(r,size,"%s<%s>\r\n",verb,arg); else if(arg) snprintf(r,size,"%s %s\r\n",verb,arg); else snprintf(r,size,"%s\r\n",verb); return r; }
+char *smtp_build_command(const char *verb, const char *arg) {
+  size_t a, v, size; char *r;
+  if (verb == NULL || *verb == '\0') return NULL;
+  v = strlen(verb); a = arg == NULL ? 0U : strlen(arg);
+  size = arg == NULL ? v + 3U : v + a + (verb[v - 1U] == ':' ? 5U : 4U);
+  r = malloc(size);
+  if (r == NULL) return NULL; // GCOVR_EXCL_BR_LINE
+  if (arg != NULL && verb[v - 1U] == ':') snprintf(r, size, "%s<%s>\r\n", verb, arg);
+  else if (arg != NULL) snprintf(r, size, "%s %s\r\n", verb, arg);
+  else snprintf(r, size, "%s\r\n", verb);
+  return r;
+}
 char *smtp_dot_stuff(const char *body) { size_t i,n,out=0U; int start=1; char *r; if(!body) return copy_text(""); n=strlen(body); if(n>(SIZE_MAX-3U)/2U) return NULL; r=malloc(n*2U+3U); if(!r) return NULL; for(i=0;i<n;++i) { if(start && body[i]=='.') r[out++]='.'; if(body[i]=='\r' && i+1U<n && body[i+1U]=='\n') { r[out++]='\r';r[out++]='\n';++i;start=1; } else if(body[i]=='\r' || body[i]=='\n') { r[out++]='\r';r[out++]='\n';start=1; } else { r[out++]=body[i];start=0; } } if(!out || r[out-1U]!='\n') {r[out++]='\r';r[out++]='\n';} r[out]='\0'; return r; }
 char *smtp_build_data_payload(const smtp_message *m) { char *stuffed,*r; int n; if(!m || !m->from || !m->to || !m->subject || has_newline(m->from)||has_newline(m->to)||has_newline(m->subject)) return NULL; stuffed=smtp_dot_stuff(m->body); if(!stuffed)return NULL; n=snprintf(NULL,0,"From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s.\r\n",m->from,m->to,m->subject,stuffed); if(n<0){free(stuffed);return NULL;} r=malloc((size_t)n+1U); if(r) snprintf(r,(size_t)n+1U,"From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s.\r\n",m->from,m->to,m->subject,stuffed); free(stuffed);return r; }
 void smtp_reader_init(smtp_reader *r,smtp_transport t) { if(r){r->transport=t;r->start=0U;r->end=0U;} }
@@ -36,4 +46,3 @@ int smtp_send_command(smtp_reader *r,const char *command,int expected,char *e,si
 int smtp_run_session(smtp_transport t,const smtp_message *m,char *e,size_t n){smtp_reader r;char line[SMTP_LINE_MAX],*cmd=NULL,*payload=NULL;int code=-1;if(!m||!m->from||!m->to||!m->helo_host||has_newline(m->from)||has_newline(m->to)||has_newline(m->helo_host)){error_set(e,n,"Invalid SMTP input; reply ",-1);return -1;}smtp_reader_init(&r,t);if(smtp_read_reply(&r,&code,line,sizeof(line))||code!=220){error_set(e,n,"SMTP expected greeting 220; server sent ",code);return -1;}cmd=smtp_build_command("HELO",m->helo_host);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("MAIL FROM:",m->from);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("RCPT TO:",m->to);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("DATA",NULL);if(!cmd||smtp_send_command(&r,cmd,354,e,n))goto fail;free(cmd);cmd=NULL;payload=smtp_build_data_payload(m);if(!payload||smtp_write_all(t,payload,strlen(payload))){error_set(e,n,"SMTP write failed; reply ",-1);goto fail;}free(payload);payload=NULL;if(smtp_read_reply(&r,&code,line,sizeof(line))||code!=250){error_set(e,n,"SMTP expected data reply 250; server sent ",code);goto fail;}cmd=smtp_build_command("QUIT",NULL);if(!cmd||smtp_send_command(&r,cmd,221,e,n))goto fail;free(cmd);return 0;fail:free(cmd);free(payload);return -1;}
 int smtp_connect(const char *host,const char *port){struct addrinfo hints,*list=NULL,*p;int fd=-1;if(!host||!port)return -1;memset(&hints,0,sizeof(hints));hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;if(getaddrinfo(host,port,&hints,&list)!=0)return -1;for(p=list;p;p=p->ai_next){fd=socket(p->ai_family,p->ai_socktype,p->ai_protocol);if(fd>=0&&connect(fd,p->ai_addr,p->ai_addrlen)==0)break;if(fd>=0){close(fd);fd=-1;}}freeaddrinfo(list);return fd;}
 ssize_t smtp_socket_read(void *c,char *b,size_t n){return recv(*(const int *)c,b,n,0);} ssize_t smtp_socket_write(void *c,const char *b,size_t n){return send(*(const int *)c,b,n,0);} void smtp_socket_close(int fd){if(fd>=0)(void)close(fd);}
-// GCOVR_EXCL_BR_STOP
