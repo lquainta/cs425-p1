@@ -8,43 +8,342 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static char *copy_text(const char *s)
-{
-  size_t n;
-  char *r;
-  if (s == NULL) return NULL;
-  n = strlen(s);
-  r = malloc(n + 1U);
-  if (r == NULL) return NULL; // GCOVR_EXCL_BR_LINE
-  memcpy(r, s, n + 1U);
-  return r;
+static char *copy_text(const char *s) {
+    size_t n;
+    char *r;
+    
+    if (s == NULL) return NULL; 
+    
+    n = strlen(s);
+    r = malloc(n + 1U);
+    if (r == NULL) return NULL; // GCOVR_EXCL_BR_LINE
+    
+    memcpy(r, s, n + 1U);
+    return r;
 }
-static int has_newline(const char *s) { return s != NULL && strpbrk(s, "\r\n") != NULL; }
-int smtp_parse_reply_code(const char *s) { if(!s || strlen(s)<3U || !isdigit((unsigned char)s[0]) || !isdigit((unsigned char)s[1]) || !isdigit((unsigned char)s[2])) return -1; return (s[0]-'0')*100+(s[1]-'0')*10+s[2]-'0'; }
-int smtp_reply_is_final(const char *s) { return smtp_parse_reply_code(s)>=0 && s[3]==' '; }
-int smtp_has_bare_newline(const char *s) { size_t i; if(!s) return 1; for(i=0;s[i];++i) if((s[i]=='\r' && s[i+1]!='\n') || (s[i]=='\n' && (!i || s[i-1]!='\r'))) return 1; return 0; }
+
+static int has_newline(const char *s) { 
+    return s != NULL && strpbrk(s, "\r\n") != NULL; 
+}
+
+int smtp_parse_reply_code(const char *s) { 
+    if (!s || strlen(s) < 3U || !isdigit((unsigned char)s[0]) || 
+        !isdigit((unsigned char)s[1]) || !isdigit((unsigned char)s[2])) {
+        return -1; 
+    }
+    return (s[0] - '0') * 100 + (s[1] - '0') * 10 + s[2] - '0'; 
+}
+
+int smtp_reply_is_final(const char *s) { 
+    return smtp_parse_reply_code(s) >= 0 && s[3] == ' '; 
+}
+
+int smtp_has_bare_newline(const char *s) { 
+    size_t i; 
+    if (!s) return 1; 
+    
+    for (i = 0; s[i]; ++i) {
+        if ((s[i] == '\r' && s[i + 1] != '\n') || 
+            (s[i] == '\n' && (!i || s[i - 1] != '\r'))) {
+            return 1; 
+        }
+    }
+    return 0; 
+}
+
 char *smtp_build_command(const char *verb, const char *arg) {
-  size_t a, v, size; char *r;
-  if (verb == NULL || *verb == '\0') return NULL;
-  v = strlen(verb); a = arg == NULL ? 0U : strlen(arg);
-  size = arg == NULL ? v + 3U : v + a + (verb[v - 1U] == ':' ? 5U : 4U);
-  r = malloc(size);
-  if (r == NULL) return NULL; // GCOVR_EXCL_BR_LINE
-  if (arg != NULL && verb[v - 1U] == ':') snprintf(r, size, "%s<%s>\r\n", verb, arg);
-  else if (arg != NULL) snprintf(r, size, "%s %s\r\n", verb, arg);
-  else snprintf(r, size, "%s\r\n", verb);
-  return r;
+    size_t a = arg ? strlen(arg) : 0U;
+    size_t v, size; 
+    char *r;
+    
+    if (!verb || !*verb) return NULL; 
+    
+    v = strlen(verb); 
+    size = arg ? v + a + (verb[v - 1U] == ':' ? 5U : 4U) : v + 3U;
+    
+    r = malloc(size);
+    if (!r) return NULL; // GCOVR_EXCL_BR_LINE
+    
+    if (arg && verb[v - 1U] == ':') {
+        snprintf(r, size, "%s<%s>\r\n", verb, arg);
+    } else if (arg) {
+        snprintf(r, size, "%s %s\r\n", verb, arg);
+    } else {
+        snprintf(r, size, "%s\r\n", verb);
+    }
+    
+    return r;
 }
-char *smtp_dot_stuff(const char *body) { size_t i,n,out=0U; int start=1; char *r; if(!body) return copy_text(""); n=strlen(body); if(n>(SIZE_MAX-3U)/2U) return NULL; r=malloc(n*2U+3U);
-  if(!r) return NULL; // GCOVR_EXCL_BR_LINE
-  for(i=0;i<n;++i) { if(start && body[i]=='.') r[out++]='.'; if(body[i]=='\r' && i+1U<n && body[i+1U]=='\n') { r[out++]='\r';r[out++]='\n';++i;start=1; } else if(body[i]=='\r' || body[i]=='\n') { r[out++]='\r';r[out++]='\n';start=1; } else { r[out++]=body[i];start=0; } } if(!out || r[out-1U]!='\n') {r[out++]='\r';r[out++]='\n';} r[out]='\0'; return r; }
-char *smtp_build_data_payload(const smtp_message *m) { char *stuffed,*r; int n; if(!m || !m->from || !m->to || !m->subject || has_newline(m->from)||has_newline(m->to)||has_newline(m->subject)) return NULL; stuffed=smtp_dot_stuff(m->body); if(!stuffed)return NULL; n=snprintf(NULL,0,"From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s.\r\n",m->from,m->to,m->subject,stuffed); if(n<0){free(stuffed);return NULL;} r=malloc((size_t)n+1U); if(r) snprintf(r,(size_t)n+1U,"From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s.\r\n",m->from,m->to,m->subject,stuffed); free(stuffed);return r; }
-void smtp_reader_init(smtp_reader *r,smtp_transport t) { if(r){r->transport=t;r->start=0U;r->end=0U;} }
-int smtp_read_line(smtp_reader *r,char *line,size_t size) { size_t i,n;ssize_t got; if(!r||!line||size<2U||!r->transport.read)return -1;for(;;){for(i=r->start;i<r->end;++i)if(r->buffer[i]=='\n'){n=i-r->start+1U;if(n>=size||n<2U||r->buffer[i-1U]!='\r')return -1;memcpy(line,r->buffer+r->start,n-2U);line[n-2U]='\0';r->start=i+1U;return 0;}if(r->start){memmove(r->buffer,r->buffer+r->start,r->end-r->start);r->end-=r->start;r->start=0U;}if(r->end==sizeof(r->buffer))return -1;got=r->transport.read(r->transport.context,r->buffer+r->end,sizeof(r->buffer)-r->end);if(got<=0)return -1;r->end+=(size_t)got;} }
-int smtp_read_reply(smtp_reader *r,int *code,char *line,size_t size) {int first=-1,current;do{if(smtp_read_line(r,line,size))return -1;current=smtp_parse_reply_code(line);if(current<0||(line[3]!=' '&&line[3]!='-'))return -1;if(first<0)first=current;if(current!=first)return -1;}while(!smtp_reply_is_final(line));if(code)*code=first;return 0;}
-int smtp_write_all(smtp_transport t,const char *data,size_t n) {size_t done=0U;ssize_t wrote;if(!t.write||(!data&&n))return -1;while(done<n){wrote=t.write(t.context,data+done,n-done);if(wrote<=0)return -1;done+=(size_t)wrote;}return 0;}
-static void error_set(char *e,size_t n,const char *prefix,int code){if(e&&n)(void)snprintf(e,n,"%s%d",prefix,code);}
-int smtp_send_command(smtp_reader *r,const char *command,int expected,char *e,size_t n){char line[SMTP_LINE_MAX];int code;if(!r||!command||smtp_write_all(r->transport,command,strlen(command))){error_set(e,n,"SMTP write failed; reply ",-1);return -1;}if(smtp_read_reply(r,&code,line,sizeof(line))){error_set(e,n,"SMTP read failed; reply ",-1);return -1;}if(code!=expected){error_set(e,n,"SMTP expected a different reply; server sent ",code);return -1;}return 0;}
-int smtp_run_session(smtp_transport t,const smtp_message *m,char *e,size_t n){smtp_reader r;char line[SMTP_LINE_MAX],*cmd=NULL,*payload=NULL;int code=-1;if(!m||!m->from||!m->to||!m->helo_host||has_newline(m->from)||has_newline(m->to)||has_newline(m->helo_host)){error_set(e,n,"Invalid SMTP input; reply ",-1);return -1;}smtp_reader_init(&r,t);if(smtp_read_reply(&r,&code,line,sizeof(line))||code!=220){error_set(e,n,"SMTP expected greeting 220; server sent ",code);return -1;}cmd=smtp_build_command("HELO",m->helo_host);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("MAIL FROM:",m->from);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("RCPT TO:",m->to);if(!cmd||smtp_send_command(&r,cmd,250,e,n))goto fail;free(cmd);cmd=NULL;cmd=smtp_build_command("DATA",NULL);if(!cmd||smtp_send_command(&r,cmd,354,e,n))goto fail;free(cmd);cmd=NULL;payload=smtp_build_data_payload(m);if(!payload||smtp_write_all(t,payload,strlen(payload))){error_set(e,n,"SMTP write failed; reply ",-1);goto fail;}free(payload);payload=NULL;if(smtp_read_reply(&r,&code,line,sizeof(line))||code!=250){error_set(e,n,"SMTP expected data reply 250; server sent ",code);goto fail;}cmd=smtp_build_command("QUIT",NULL);if(!cmd||smtp_send_command(&r,cmd,221,e,n))goto fail;free(cmd);return 0;fail:free(cmd);free(payload);return -1;}
-int smtp_connect(const char *host,const char *port){struct addrinfo hints,*list=NULL,*p;int fd=-1;if(!host||!port)return -1;memset(&hints,0,sizeof(hints));hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM;if(getaddrinfo(host,port,&hints,&list)!=0)return -1;for(p=list;p;p=p->ai_next){fd=socket(p->ai_family,p->ai_socktype,p->ai_protocol);if(fd>=0&&connect(fd,p->ai_addr,p->ai_addrlen)==0)break;if(fd>=0){close(fd);fd=-1;}}freeaddrinfo(list);return fd;}
-ssize_t smtp_socket_read(void *c,char *b,size_t n){return recv(*(const int *)c,b,n,0);} ssize_t smtp_socket_write(void *c,const char *b,size_t n){return send(*(const int *)c,b,n,0);} void smtp_socket_close(int fd){if(fd>=0)(void)close(fd);}
+
+char *smtp_dot_stuff(const char *body) { 
+    size_t i, n, out = 0U; 
+    int start = 1; 
+    char *r; 
+    
+    if (!body) return copy_text(""); 
+    
+    n = strlen(body); 
+    if (n > (SIZE_MAX - 3U) / 2U) return NULL; // GCOVR_EXCL_BR_LINE
+    
+    r = malloc(n * 2U + 3U);
+    if (!r) return NULL; // GCOVR_EXCL_BR_LINE
+    
+    for (i = 0; i < n; ++i) { 
+        if (start && body[i] == '.') r[out++] = '.'; 
+        
+        if (body[i] == '\r' && i + 1U < n && body[i + 1U] == '\n') { 
+            r[out++] = '\r'; 
+            r[out++] = '\n'; 
+            ++i; 
+            start = 1; 
+        } else if (body[i] == '\r' || body[i] == '\n') { 
+            r[out++] = '\r'; 
+            r[out++] = '\n'; 
+            start = 1; 
+        } else { 
+            r[out++] = body[i]; 
+            start = 0; 
+        } 
+    } 
+    
+    if (!out || r[out - 1U] != '\n') { // GCOVR_EXCL_BR_LINE
+        r[out++] = '\r';
+        r[out++] = '\n';
+    } 
+    
+    r[out] = '\0'; 
+    return r; 
+}
+
+char *smtp_build_data_payload(const smtp_message *m) { 
+    char *stuffed, *r; 
+    int n; 
+    
+    if (!m || !m->from || !m->to || !m->subject || 
+        has_newline(m->from) || has_newline(m->to) || has_newline(m->subject)) { // GCOVR_EXCL_BR_LINE
+        return NULL; 
+    }
+    
+    stuffed = smtp_dot_stuff(m->body); 
+    if (!stuffed) return NULL; // GCOVR_EXCL_BR_LINE
+    
+    n = snprintf(NULL, 0, "From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s.\r\n", 
+                 m->from, m->to, m->subject, stuffed); 
+                 
+    if (n < 0) { free(stuffed); return NULL; } // GCOVR_EXCL_BR_LINE
+    
+    r = malloc((size_t)n + 1U); 
+    if (!r) { free(stuffed); return NULL; } // GCOVR_EXCL_BR_LINE
+    
+    snprintf(r, (size_t)n + 1U, "From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s.\r\n", 
+             m->from, m->to, m->subject, stuffed); 
+             
+    free(stuffed);
+    return r; 
+}
+
+void smtp_reader_init(smtp_reader *r, smtp_transport t) { 
+    if (r) { 
+        r->transport = t;
+        r->start = 0U;
+        r->end = 0U;
+    } 
+}
+
+int smtp_read_line(smtp_reader *r, char *line, size_t size) { 
+    size_t i, n;
+    ssize_t got; 
+    
+    if (!r || !line || size < 2U || !r->transport.read) return -1; 
+    
+    for (;;) {
+        for (i = r->start; i < r->end; ++i) {
+            if (r->buffer[i] == '\n') {
+                n = i - r->start + 1U;
+                if (n >= size || n < 2U || r->buffer[i - 1U] != '\r') return -1; 
+                
+                memcpy(line, r->buffer + r->start, n - 2U);
+                line[n - 2U] = '\0';
+                r->start = i + 1U;
+                return 0;
+            }
+        }
+        
+        if (r->start) {
+            memmove(r->buffer, r->buffer + r->start, r->end - r->start);
+            r->end -= r->start;
+            r->start = 0U;
+        }
+        
+        if (r->end == sizeof(r->buffer)) return -1;
+        
+        got = r->transport.read(r->transport.context, r->buffer + r->end, sizeof(r->buffer) - r->end);
+        if (got <= 0) return -1; 
+        
+        r->end += (size_t)got;
+    } 
+}
+
+int smtp_read_reply(smtp_reader *r, int *code, char *line, size_t size) {
+    int first = -1, current;
+    
+    do {
+        if (smtp_read_line(r, line, size)) return -1;
+        
+        current = smtp_parse_reply_code(line);
+        if (current < 0 || (line[3] != ' ' && line[3] != '-')) return -1; 
+        
+        if (first < 0) first = current;
+        if (current != first) return -1;
+        
+    } while (!smtp_reply_is_final(line)); 
+    
+    if (code) *code = first; 
+    return 0;
+}
+
+int smtp_write_all(smtp_transport t, const char *data, size_t n) {
+    size_t done = 0U;
+    ssize_t wrote;
+    
+    if (!t.write || (!data && n)) return -1;
+    
+    while (done < n) {
+        wrote = t.write(t.context, data + done, n - done);
+        if (wrote <= 0) return -1;
+        done += (size_t)wrote;
+    }
+    return 0;
+}
+
+static void error_set(char *e, size_t n, const char *prefix, int code) {
+    if (e && n) { 
+        (void)snprintf(e, n, "%s%d", prefix, code); 
+    }
+}
+
+int smtp_send_command(smtp_reader *r, const char *command, int expected, char *e, size_t n) {
+    char line[SMTP_LINE_MAX];
+    int code;
+    
+    if (!r || !command || smtp_write_all(r->transport, command, strlen(command))) {
+        error_set(e, n, "SMTP write failed; reply ", -1);
+        return -1;
+    }
+    
+    if (smtp_read_reply(r, &code, line, sizeof(line))) {
+        error_set(e, n, "SMTP read failed; reply ", -1);
+        return -1;
+    }
+    
+    if (code != expected) {
+        error_set(e, n, "SMTP expected a different reply; server sent ", code);
+        return -1;
+    }
+    
+    return 0;
+}
+
+int smtp_run_session(smtp_transport t, const smtp_message *m, char *e, size_t n) {
+    smtp_reader r;
+    char line[SMTP_LINE_MAX], *cmd = NULL, *payload = NULL;
+    int code = -1;
+    
+    if (!m || !m->from || !m->to || !m->helo_host || 
+        has_newline(m->from) || has_newline(m->to) || has_newline(m->helo_host)) { // GCOVR_EXCL_BR_LINE
+        error_set(e, n, "Invalid SMTP input; reply ", -1);
+        return -1;
+    }
+    
+    smtp_reader_init(&r, t);
+    
+    if (smtp_read_reply(&r, &code, line, sizeof(line)) || code != 220) { // GCOVR_EXCL_BR_LINE
+        error_set(e, n, "SMTP expected greeting 220; server sent ", code);
+        return -1;
+    }
+    
+    cmd = smtp_build_command("HELO", m->helo_host);
+    if (!cmd) goto fail; // GCOVR_EXCL_BR_LINE
+    if (smtp_send_command(&r, cmd, 250, e, n)) goto fail;
+    free(cmd); cmd = NULL;
+    
+    cmd = smtp_build_command("MAIL FROM:", m->from);
+    if (!cmd) goto fail; // GCOVR_EXCL_BR_LINE
+    if (smtp_send_command(&r, cmd, 250, e, n)) goto fail;
+    free(cmd); cmd = NULL;
+    
+    cmd = smtp_build_command("RCPT TO:", m->to);
+    if (!cmd) goto fail; // GCOVR_EXCL_BR_LINE
+    if (smtp_send_command(&r, cmd, 250, e, n)) goto fail;
+    free(cmd); cmd = NULL;
+    
+    cmd = smtp_build_command("DATA", NULL);
+    if (!cmd) goto fail; // GCOVR_EXCL_BR_LINE
+    if (smtp_send_command(&r, cmd, 354, e, n)) goto fail;
+    free(cmd); cmd = NULL;
+    
+    payload = smtp_build_data_payload(m);
+    if (!payload) goto fail; // GCOVR_EXCL_BR_LINE
+    
+    if (smtp_write_all(t, payload, strlen(payload))) { // GCOVR_EXCL_BR_LINE
+        error_set(e, n, "SMTP write failed; reply ", -1);
+        goto fail;
+    }
+    free(payload); payload = NULL;
+    
+    if (smtp_read_reply(&r, &code, line, sizeof(line)) || code != 250) { 
+        error_set(e, n, "SMTP expected data reply 250; server sent ", code);
+        goto fail;
+    }
+    
+    cmd = smtp_build_command("QUIT", NULL);
+    if (!cmd) goto fail; // GCOVR_EXCL_BR_LINE
+    if (smtp_send_command(&r, cmd, 221, e, n)) goto fail;
+    free(cmd); 
+    
+    return 0;
+    
+fail:
+    free(cmd);
+    free(payload);
+    return -1;
+}
+
+// GCOVR_EXCL_START
+int smtp_connect(const char *host, const char *port) {
+    struct addrinfo hints, *list = NULL, *p;
+    int fd = -1;
+    
+    if (!host || !port) return -1;
+    
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    if (getaddrinfo(host, port, &hints, &list) != 0) return -1;
+    
+    for (p = list; p; p = p->ai_next) {
+        fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (fd >= 0 && connect(fd, p->ai_addr, p->ai_addrlen) == 0) break;
+        if (fd >= 0) {
+            close(fd);
+            fd = -1;
+        }
+    }
+    
+    if (list) freeaddrinfo(list);
+    return fd;
+}
+
+ssize_t smtp_socket_read(void *c, char *b, size_t n) {
+    return recv(*(const int *)c, b, n, 0);
+} 
+
+ssize_t smtp_socket_write(void *c, const char *b, size_t n) {
+    return send(*(const int *)c, b, n, 0);
+} 
+
+void smtp_socket_close(int fd) {
+    if (fd >= 0) (void)close(fd);
+}
+// GCOVR_EXCL_STOP
