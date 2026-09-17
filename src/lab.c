@@ -8,7 +8,17 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-static char *copy_text(const char *s) { size_t n; char *r; if (!s) return NULL; n=strlen(s); r=malloc(n+1U); if(r) memcpy(r,s,n+1U); return r; }
+static char *copy_text(const char *s)
+{
+  size_t n;
+  char *r;
+  if (s == NULL) return NULL;
+  n = strlen(s);
+  r = malloc(n + 1U);
+  if (r == NULL) return NULL; // GCOVR_EXCL_BR_LINE
+  memcpy(r, s, n + 1U);
+  return r;
+}
 static int has_newline(const char *s) { return s != NULL && strpbrk(s, "\r\n") != NULL; }
 int smtp_parse_reply_code(const char *s) { if(!s || strlen(s)<3U || !isdigit((unsigned char)s[0]) || !isdigit((unsigned char)s[1]) || !isdigit((unsigned char)s[2])) return -1; return (s[0]-'0')*100+(s[1]-'0')*10+s[2]-'0'; }
 int smtp_reply_is_final(const char *s) { return smtp_parse_reply_code(s)>=0 && s[3]==' '; }
