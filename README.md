@@ -1,6 +1,7 @@
 # CS425 P1 — Simple Mail Client
 
 - Name: Landon Quaintance
+- Email: landonquaintance@boisestate.edu
 - Class: CS425
 
 ## Build and run
@@ -28,3 +29,19 @@ in-memory server, without a live mail server.
 
 The client uses HELO, does not negotiate TLS or authentication, and rejects bare
 CR/LF in envelope and header inputs to prevent command/header injection.
+
+## Known Bugs or Issues
+
+None known. The assignment intentionally has no TLS or authentication support.
+
+## Experience
+
+The main design challenge was treating a socket as a byte stream: SMTP replies can
+be split across reads or combined in one read. The buffered transport reader and
+scripted tests make those cases repeatable without a live server.
+
+## Analysis
+
+The client verifies the expected SMTP status before advancing each stage, so a
+failed greeting, envelope command, DATA command, queued-message reply, or QUIT
+reply terminates the session with the received status in its error message.
